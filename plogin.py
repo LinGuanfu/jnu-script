@@ -1,8 +1,8 @@
 #!/usr/bin/python
 # -*- coding: utf-8-*-
-import urllib
-import urllib2
-import cookielib
+# __auther__ : AstroBruce
+
+import requests
 import re
 from bs4 import BeautifulSoup
 
@@ -15,55 +15,50 @@ VALIDATE_CODE = 'http://202.116.0.176/ValidateCode.aspx'
 GET_URL = 'http://202.116.0.176/Secure/PaiKeXuanKe/wfrm_XK_MainCX.aspx'
 TEMP_PATH = 'F:\\pic\\test2\\temp.tif'
 
-# 设置一个cookie处理器
-cj = cookielib.CookieJar()
-opener = urllib2.build_opener(urllib2.HTTPCookieProcessor(cj))
-urllib2.install_opener(opener)
-
 # 初始化post过去的headers和form
 headers = {'Referer': 'http://202.116.0.176/Login.aspx',
 		   'User-Agent': 'Mozilla/5.0 (Windows NT 6.3; WOW64) Chrome/41.0.2272.89 Safari/537.36'}
 post_data = {'__VIEWSTATEGENERATOR': 'C2EE9ABB'}
+data = {}
+session = requests.Session()
+session.get(HOST_URL, headers=headers)
 
 # 预登录，为的是下载cookie和form中的某些项的值
-def pre_login():
-	resp = urllib2.urlopen(POST_URL)
-	text = BeautifulSoup(resp)
+def prepare():
+	resp = session.get(POST_URL, data=data, headers=headers, timeout=0.3)
+	text = BeautifulSoup(resp.content)
 	global post_data
+
 	for i in text.select("input#__VIEWSTATE"):
 		post_data['__VIEWSTATE'] = i['value'].encode('utf-8')
+
 	for j in text.select("input#__EVENTVALIDATION"):
 		post_data['__EVENTVALIDATION'] = j['value'].encode('utf-8')
+
 	for k in text.select("input#btnLogin"):
 		post_data['btnLogin'] = k['value'].encode('utf-8')
 
 # 模拟登陆，传入id号跟密码即可
 def login(id_number, password):
-	cj.clear()
+
 	# 下载验证码
-	resp = urllib2.urlopen(VALIDATE_CODE)
-	data = resp.read()
+	resp = session.get(VALIDATE_CODE)
+	data = resp.content
 	temp = open(TEMP_PATH, "wb")
 	temp.write(data)
 	temp.close()
+
 	# 用OutputString函数识别验证码
 	text = outputString(TEMP_PATH)
-
+	# print text
 	global post_data
 
 	post_data['txtFJM'] = '%s' % text
 	post_data['txtYHBS'] = '%s' % id_number
 	post_data['txtYHMM'] = '%s' % password
 
-	post_data = urllib.urlencode(post_data)
-
-	request = urllib2.Request(POST_URL, post_data, headers)
-	response = urllib2.urlopen(request)
-
-	# text = BeautifulSoup(response)
-	# print text.prettify().encode('utf-8')
-
-	length = response.headers['Content-Length']
+	resp = session.post(POST_URL, data=post_data, headers=headers, timeout=0.5)
+	length = resp.headers['Content-Length']
 	if length == "7819":
 		print u"failed"
 	elif length == "1325":
@@ -72,7 +67,9 @@ def login(id_number, password):
 		print u'error'
 		raise
 
+
 def get_examation_time():
+
 	# 初始化post的数据
 	local_post_data = {'__EVENTTARGET' : "",
 					   '__EVENTARGUMENT' : "",
@@ -80,8 +77,8 @@ def get_examation_time():
 					   }
 
 	#get到排课选课的框架内，下载post内的另外三个数据
-	response = urllib2.urlopen('http://202.116.0.176/Secure/PaiKeXuanKe/wfrm_xk_StudentKcb.aspx')
-	html_text = BeautifulSoup(response)
+	resp = session.get('http://202.116.0.176/Secure/PaiKeXuanKe/wfrm_xk_StudentKcb.aspx')
+	html_text = BeautifulSoup(resp.content)
 
 	for input_tag in html_text.findAll('input', limit=3):
 		try:
@@ -108,45 +105,39 @@ def get_examation_time():
 			if option_tag.has_attr('selected'):
 				local_post_data[value_list[5]] = option_tag['value'].encode('utf-8')
 
-	# local_post_data[value_list[0]] = select_list[0].encode('GBK')
 	local_post_data[value_list[1]] = select_list[1].encode('GBK')
 	local_post_data[value_list[2]] = select_list[3].encode('GBK')
 	local_post_data[value_list[3]] = select_list[3].encode('GBK')
 
-	# print local_post_data
-
-	local_post_data = urllib.urlencode(local_post_data)
-
-	# print local_post_data
-
 	# 到此为止，post的数据构造完毕
 
 	# 先post到排课选课的框架
-	request = urllib2.Request('http://202.116.0.176/Secure/PaiKeXuanKe/wfrm_xk_StudentKcb.aspx', local_post_data, headers)
-	response = urllib2.urlopen(request)
-
+	resp = session.post('http://202.116.0.176/Secure/PaiKeXuanKe/wfrm_xk_StudentKcb.aspx',
+						data=local_post_data,
+						headers=headers)
+	print resp.content
 	# 抓取内部嵌套的frame标签的src
-	html = BeautifulSoup(response, from_encoding="GBK")
+	html = BeautifulSoup(resp.content, from_encoding="GBK")
 	ReportFrameReportViewer = html.find(id='ReportFrameReportViewer1')
 
 	# 重定位URL
 	redict_url = 'http://202.116.0.176' + ReportFrameReportViewer['src']
 
 	# 进入外面一层frame
-	response = urllib2.urlopen(redict_url)
+	resp = session.get(redict_url)
 
 	# 继续抓取内部frame标签的src
-	html = BeautifulSoup(response, from_encoding="GBK")
+	html = BeautifulSoup(resp.content, from_encoding="GBK")
 	report = html.find(id='report')
 
 	# 最终重定位
 	redict_url = 'http://202.116.0.176' + report['src']
 
 	# 进入最终界面
-	response = urllib2.urlopen(redict_url)
+	response = session.get(redict_url)
 
 	# 即将进行json封装操作
-	html = BeautifulSoup(response, from_encoding="GBK")
+	html = BeautifulSoup(response.content, from_encoding="GBK")
 	# print html.prettify(encoding='utf-8')
 
 	print html.findAll("td", class_="a4")[0].text
@@ -154,7 +145,7 @@ def get_examation_time():
 	course_list = []
 
 	for i in html.findAll("div", class_="r11"):
-		if len(i.text)>=15:
+		if len(i.text) >= 15:
 			fliter = u'考试'
 			colon = u'：'
 			course = re.findall(r'%s.*?\)' % fliter, i.text)
@@ -170,7 +161,7 @@ def get_examation_time():
 
 def main():
 	try:
-		pre_login()
+		prepare()
 	except Exception, e:
 		if hasattr(e, 'code'):
 			print 'The server could not fullfill our POST-request, ERROR CODE:', [e.code]
@@ -181,7 +172,7 @@ def main():
 
 	else:
 		try:
-			login(2014xxxxxx, 1995xxxx)
+			login(2014051470, 19951018)
 		except Exception, e:
 			if hasattr(e, 'code'):
 				print 'The server could not fullfill our request, ERROR CODE:', [e.code]
@@ -191,8 +182,6 @@ def main():
 				print 'something wrong'
 		else:
 			get_examation_time()
-	# test = opener.open("http://202.116.0.176/Secure/TeachingPlan/wfrm_Prt_Report.aspx")
-	# print test.read()
 # -------------------------main----------------------------------------
 if __name__ == '__main__':
 	main()
